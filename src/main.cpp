@@ -16,13 +16,17 @@
 #include <vector>
 #include <string>
 #include <unordered_map>
+
+#include <fstream>
+#include <sstream>
+
 #ifdef _WIN32
 #include <windows.h>
 #include <winternl.h>
 #endif
 
 #define DENOISER_MAJOR_VERSION 3
-#define DENOISER_MINOR_VERSION 0
+#define DENOISER_MINOR_VERSION 1
 
 // Simple struct to hold information about our images
 struct ImageInfo
@@ -98,6 +102,44 @@ void PrintError(const char *c, Args... args)
     char buffer[256];
     sprintf(buffer, c, args...);
     std::cerr<<getTime()<<" ERROR   | "<<buffer<<std::endl;
+}
+
+int write_pfm(std::string _path, const OIIO::ImageBuf& _image)
+{
+    OIIO::ImageSpec img_spec = _image.spec();
+
+    if (img_spec.format != OIIO::TypeDesc::FLOAT) {
+        PrintError("Invalid image format, expected FLOAT.");      
+        return 0;
+    }
+
+    std::ofstream outfile(_path, std::ios::binary);
+    if (!outfile.is_open()) {         
+        PrintError("Could not open file \"%s\" for writing (binary)", _path);       
+        return 0;
+    }
+
+    int width = img_spec.width;
+    int height = img_spec.height;
+    int channels = img_spec.nchannels;
+
+    outfile << "PF" << std::endl;
+    outfile << width << std::endl;    
+    outfile << height << std::endl;
+    outfile << -1 << std::endl; // little-endian
+
+    for (int y = height-1; y >= 0; --y) { // bottom to top order (PFM)
+        for (int x = 0; x < width; ++x) {
+            for (int c = 0; c < channels; ++c) {
+                float value = _image.getchannel(x, y, 0, c);
+                outfile.write(reinterpret_cast<char*>(&value), sizeof(float));
+            }
+        }
+    }
+
+    outfile.close();
+
+    return 1;
 }
 
 #ifdef _WIN32
@@ -241,7 +283,7 @@ int main(int argc, char *argv[])
         }
     }
     PrintInfo("Launching Nvidia AI Denoiser command line app v%d.%d", DENOISER_MAJOR_VERSION, DENOISER_MINOR_VERSION);
-    PrintInfo("Created by Declan Russell (25/12/2017 ~ Merry Christmas!)");
+    PrintInfo("Created by Declan Russell (25/12/2017 ~ Merry Christmas!); Adapted by Christian Freude.");
 
     if (!discoverDevices())
         exitfunc(EXIT_FAILURE);
@@ -930,19 +972,32 @@ int main(int argc, char *argv[])
     // Set our OIIO pixels
     if (!g_input_beauty.data->set_pixels(beauty_roi, OIIO::TypeDesc::FLOAT, &beauty_pixels[0]))
         PrintError("Something went wrong setting pixels of file %s", g_input_beauty.filename.c_str());
+    
+    if (g_input_beauty.output_filename.empty())
+        g_input_beauty.output_filename = g_input_beauty.filename;
 
     // Save the output image
     std::string out_path = g_input_beauty.output_filename;
-    if (!out_suffix.empty())
-    {
-        if (g_input_beauty.output_filename.empty())
-            g_input_beauty.output_filename = g_input_beauty.filename;
-        int ext_loc = (int)g_input_beauty.output_filename.find_last_of(".");
-        const char* ext_c = g_input_beauty.output_filename.c_str()+ext_loc;
-        std::string ext(ext_c);
-        out_path = g_input_beauty.output_filename.substr(0, ext_loc) + out_suffix + ext_c;
+
+    // parse extesnsion
+    int ext_loc = out_path.find_last_of(".");
+    std::string ext = out_path.substr(ext_loc);
+
+    if (!out_suffix.empty()) {        
+        out_path = out_path.substr(0, ext_loc) + out_suffix + ext;
     }
-    if (g_input_beauty.data->write(out_path, OIIO::TypeDesc::FLOAT))
+
+    PrintInfo("Extension: %s", ext.c_str());
+
+    if(ext.compare(".pfm") == 0)
+    {        
+        if(write_pfm(out_path, *g_input_beauty.data))
+            PrintInfo("Written PFM file: %s", out_path.c_str());
+        else {
+            PrintError("Could not save PFM file %s", out_path.c_str());
+        }
+    }
+    else if (g_input_beauty.data->write(out_path))
         PrintInfo("Written out: %s", out_path.c_str());
     else
     {
