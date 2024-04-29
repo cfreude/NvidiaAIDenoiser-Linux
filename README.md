@@ -1,5 +1,10 @@
 # LINUX
 
+## Changes
+
+- updated ```SConstruct``` and ```main.cpp``` to work on Ubuntu 22 with OptiX 8.0.
+- added PFM support (inline, not via OpenimageIO)
+
 ## Dependencies
 
 - CUDA
@@ -7,9 +12,9 @@
 - OpenimageIO
 
 On Ubuntu 22 the shell script ```setup-ubuntu.sh``` can be used.
-OptiX needs to be installed manually, and the environment variable ```OPTIX_PATH``` needs to be set to its install folder via: ```setup-ubuntu.sh```
+OptiX needs to be installed manually, and the environment variable ```OPTIX_PATH``` needs to be set to its install folder, e.g. via: ```
+echo 'export OPTIX_PATH="<path-to-optix>"' >> ~/.bashrc```
 
----
 ---
 
 # NVidia AI Denoiser command line tool
